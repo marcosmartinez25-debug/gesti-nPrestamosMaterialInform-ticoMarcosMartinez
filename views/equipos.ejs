@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<title>Equipos</title>
+<h1>Inventario de equipos</h1>
+
+<form action="/equipos" method="get">
+  <label>Buscar por nombre
+    <input name="q" value="<%= q %>" maxlength="80">
+  </label>
+  <label>Categoría
+    <input name="categoria" value="<%= categoria %>" maxlength="40">
+  </label>
+  <label>Disponibilidad
+    <select name="disponibilidad">
+      <option value="" <%= disponibilidad === '' ? 'selected' : '' %>>Todas</option>
+      <option value="si" <%= disponibilidad === 'si' ? 'selected' : '' %>>Disponibles</option>
+      <option value="no" <%= disponibilidad === 'no' ? 'selected' : '' %>>Prestados</option>
+    </select>
+  </label>
+  <label>Ordenar por
+    <select name="orden">
+      <option value="codigo" <%= orden === 'codigo' ? 'selected' : '' %>>Código</option>
+      <option value="nombre" <%= orden === 'nombre' ? 'selected' : '' %>>Nombre</option>
+    </select>
+  </label>
+  <button>Filtrar</button>
+</form>
+
+<% if (equipos.length === 0) { %>
+  <p>No hay equipos que cumplan estos filtros en esta página.</p>
+<% } else { %>
+  <table border="1">
+    <thead>
+      <tr>
+        <th>Código</th>
+        <th>Nombre</th>
+        <th>Categoría</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% for (const equipo of equipos) { %>
+        <tr>
+          <td><a href="/equipos/<%= equipo.id %>"><%= equipo.codigo %></a></td>
+          <td><%= equipo.nombre %></td>
+          <td><%= equipo.categoria %></td>
+          <td><%= equipo.estado %></td>
+        </tr>
+      <% } %>
+    </tbody>
+  </table>
+<% } %>
+
+<p>Página <%= pagina %></p>
+<% if (anterior) { %><a href="<%= anterior %>">Anterior</a><% } %>
+<% if (siguiente) { %><a href="<%= siguiente %>">Siguiente</a><% } %>
+</html>
