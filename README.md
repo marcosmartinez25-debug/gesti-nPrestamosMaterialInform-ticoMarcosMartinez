@@ -230,3 +230,181 @@ están puestas de verdad:
 | Borrar el equipo 1, que ya tiene un préstamo devuelto | Error de clave foránea |
 | Poner una devolución anterior al préstamo | Error del `CHECK` de fechas |
 | Prestar a un usuario que no existe | Error de clave foránea |
+
+## 9. Las mismas comprobaciones con curl
+
+El script del punto 8 lo hace todo de golpe. Aquí están las mismas peticiones
+una a una desde la terminal, para poder verlas en directo. Pego `init.sql`
+antes de empezar y las lanzo en este orden, porque cada bloque da por hecho el
+estado que deja el anterior. La opción `-i` saca el código de estado y las
+cabeceras, que es lo que se compara con la tabla.
+
+```
+BASE=http://127.0.0.1:3000
+```
+
+Si lo lanzo desde el CMD de Windows, el `-d` con comillas simples no funciona;
+uso Git Bash o PowerShell.
+
+### 9.1. Alta y modificación
+
+Con los datos de `init.sql` recién pegados hay 12 equipos, así que el equipo
+nuevo sale con el id 13. Si no coincide, uso el id que venga en la respuesta.
+
+```
+# 201 y cabecera Location
+curl -i -X POST "$BASE/api/equipos" \
+  -H "Content-Type: application/json" \
+  -d '{"codigo":"TEST01","nombre":"Equipo de prueba","categoria":"portatil"}'
+
+# 409: el código ya existe
+curl -i -X POST "$BASE/api/equipos" \
+  -H "Content-Type: application/json" \
+  -d '{"codigo":"TEST01","nombre":"Otro equipo","categoria":"portatil"}'
+
+# 400: el código solo admite mayúsculas, números y guiones, y el nombre no
+# puede ir vacío
+curl -i -X POST "$BASE/api/equipos" \
+  -H "Content-Type: application/json" \
+  -d '{"codigo":"minusculas!","nombre":"","categoria":"portatil"}'
+
+# 200 y la categoría cambiada a tableta
+curl -i -X PUT "$BASE/api/equipos/13" \
+  -H "Content-Type: application/json" \
+  -d '{"codigo":"TEST01","nombre":"Equipo de prueba editado","categoria":"tableta"}'
+
+# 200 y disponible sigue en true: PUT no toca ese campo
+curl -i -X PUT "$BASE/api/equipos/13" \
+  -H "Content-Type: application/json" \
+  -d '{"codigo":"TEST01","nombre":"Equipo de prueba editado","categoria":"tableta","disponible":false}'
+
+# 404: el id no existe
+curl -i -X PUT "$BASE/api/equipos/999999" \
+  -H "Content-Type: application/json" \
+  -d '{"codigo":"NADA","nombre":"No existe","categoria":"portatil"}'
+```
+
+### 9.2. Consulta y filtros
+
+```
+# Primera página ordenada por código: sale ALT01 y no sale PORT01
+curl -i "$BASE/equipos"
+
+# Búsqueda sin distinguir mayúsculas ni minúsculas (ILIKE)
+curl -i -G "$BASE/equipos" --data-urlencode "q=PORTÁTIL"
+
+# Filtro por categoría: sale AUR01 y no sale PORT01
+curl -i "$BASE/equipos?categoria=audio"
+
+# Filtro por disponibilidad (solo admite si o no)
+curl -i "$BASE/equipos?disponibilidad=si"
+curl -i "$BASE/equipos?disponibilidad=no"
+
+# Ordenar por nombre
+curl -i "$BASE/equipos?orden=nombre"
+
+# Segunda página: sale PORT01 y ya no sale ALT01
+curl -i "$BASE/equipos?pagina=2"
+
+# Los filtros se mantienen al pasar de página: en los enlaces Anterior y
+# Siguiente aparecen q y orden
+curl -i "$BASE/equipos?q=o&orden=nombre&pagina=2"
+
+# 200 con el aviso de que no hay equipos
+curl -i "$BASE/equipos?q=zzzz"
+
+# 400: la página empieza en 1
+curl -i "$BASE/equipos?pagina=0"
+
+# Detalle correcto, id mal escrito (400) e id inexistente (404)
+curl -i "$BASE/equipos/1"
+curl -i "$BASE/equipos/abc"
+curl -i "$BASE/equipos/999999"
+```
+
+Para ver solo el código de estado, sin el HTML de la página:
+
+```
+curl -s -o /dev/null -w "%{http_code}\n" "$BASE/equipos?pagina=0"
+```
+
+### 9.3. Borrado
+
+```
+# 204 sin cuerpo: el equipo de prueba no tiene préstamos
+curl -i -X DELETE "$BASE/api/equipos/13"
+
+# 404: ya está borrado
+curl -i -X DELETE "$BASE/api/equipos/13"
+```
+
+### 9.4. Préstamo, duplicado y borrado con historial
+
+```
+# 201 con el id del préstamo
+curl -i -X POST "$BASE/api/prestamos" \
+  -H "Content-Type: application/json" \
+  -d '{"equipoId":1,"usuarioId":1}'
+
+# El equipo 1 aparece como Prestado y a nombre de Ana Gil
+curl -i "$BASE/equipos/1"
+
+# 409: el mismo equipo ya está prestado
+curl -i -X POST "$BASE/api/prestamos" \
+  -H "Content-Type: application/json" \
+  -d '{"equipoId":1,"usuarioId":2}'
+
+# 409: el equipo 1 ya tiene préstamos registrados
+curl -i -X DELETE "$BASE/api/equipos/1"
+```
+
+### 9.5. Rollback
+
+El usuario 999 no existe, así que falla la clave foránea del `INSERT` y el
+`ROLLBACK` tiene que devolver el equipo a disponible.
+
+```
+# 400
+curl -i -X POST "$BASE/api/prestamos" \
+  -H "Content-Type: application/json" \
+  -d '{"equipoId":2,"usuarioId":999}'
+
+# El equipo 2 sigue Disponible y sin ningún préstamo
+curl -i "$BASE/equipos/2"
+```
+
+### 9.6. Devolución
+
+El id de la URL es el del préstamo, no el del equipo. Con el estado de partida
+el primer préstamo es el 1.
+
+```
+# 200 y fecha_devolucion con valor
+curl -i -X POST "$BASE/api/prestamos/1/devolucion"
+
+# El equipo 1 vuelve a estar Disponible
+curl -i "$BASE/equipos/1"
+
+# 409: ese préstamo ya se devolvió
+curl -i -X POST "$BASE/api/prestamos/1/devolucion"
+
+# 409: el préstamo no existe
+curl -i -X POST "$BASE/api/prestamos/999999/devolucion"
+```
+
+### 9.7. Simultaneidad
+
+Los dos préstamos del equipo 3 salen a la vez (el `&` los deja en segundo plano
+y `wait` espera a los dos). Solo uno puede confirmarse: uno responde 201 y el
+otro 409.
+
+```
+curl -s -o /dev/null -w "A: %{http_code}\n" -X POST "$BASE/api/prestamos" \
+  -H "Content-Type: application/json" -d '{"equipoId":3,"usuarioId":1}' &
+curl -s -o /dev/null -w "B: %{http_code}\n" -X POST "$BASE/api/prestamos" \
+  -H "Content-Type: application/json" -d '{"equipoId":3,"usuarioId":2}' &
+wait
+
+# El equipo 3 tiene una sola fila de préstamo
+curl -i "$BASE/equipos/3"
+```
